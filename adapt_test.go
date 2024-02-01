@@ -1,9 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,17 +11,30 @@ import (
 	"github.com/aquasecurity/defsec/pkg/types"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestXxx(t *testing.T) {
+func TestAdapt(t *testing.T) {
 
 	expected := &state.State{
 		AWS: aws.AWS{
 			S3: s3.S3{
 				Buckets: []s3.Bucket{
+					{
+						Name: types.String("module.log_bucket.aws_s3_bucket.this[0]", types.Metadata{}),
+						PublicAccessBlock: &s3.PublicAccessBlock{
+							BlockPublicACLs:       types.Bool(true, types.Metadata{}),
+							BlockPublicPolicy:     types.Bool(true, types.Metadata{}),
+							RestrictPublicBuckets: types.Bool(true, types.Metadata{}),
+							IgnorePublicACLs:      types.Bool(true, types.Metadata{}),
+						},
+						Versioning: s3.Versioning{
+							Enabled:   types.Bool(true, types.Metadata{}),
+							MFADelete: types.Bool(true, types.Metadata{}),
+						},
+						ACL: types.String("aws-exec-read", types.Metadata{}),
+					},
 					{
 						Name: types.String("test", types.Metadata{}),
 						Versioning: s3.Versioning{
@@ -38,7 +48,7 @@ func TestXxx(t *testing.T) {
 						},
 						Logging: s3.Logging{
 							Enabled:      types.Bool(true, types.Metadata{}),
-							TargetBucket: types.String("test-log", types.Metadata{}),
+							TargetBucket: types.String("module.log_bucket.aws_s3_bucket.this[0]", types.Metadata{}),
 						},
 						PublicAccessBlock: &s3.PublicAccessBlock{
 							BlockPublicACLs:       types.Bool(true, types.Metadata{}),
@@ -57,9 +67,6 @@ func TestXxx(t *testing.T) {
 							},
 						},
 					},
-					{
-						Name: types.String("test-log", types.Metadata{}),
-					},
 				},
 			},
 		},
@@ -69,25 +76,14 @@ func TestXxx(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	plan, err := readPlan(f)
+	plan, err := ReadPlan(f)
 	require.NoError(t, err)
 
-	planState, err := NewPlanState(plan)
+	graph, err := NewTerraformPlanGraph(plan)
 	require.NoError(t, err)
 
-	got := Adapt(planState)
+	got := Adapt(graph)
 	assert.Empty(t, diffState(expected, got))
-}
-
-func readPlan(r io.Reader) (*tfjson.Plan, error) {
-	var plan tfjson.Plan
-	decoder := json.NewDecoder(r)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&plan); err != nil {
-		return nil, fmt.Errorf("failed to decode JSON: %w", err)
-	}
-
-	return &plan, nil
 }
 
 func diffState(expected *state.State, actual *state.State, opts ...cmp.Option) string {

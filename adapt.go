@@ -9,47 +9,39 @@ import (
 	"github.com/aquasecurity/defsec/pkg/types"
 )
 
-func Adapt(s *PlanState) *state.State {
+func Adapt(g *Graph) *state.State {
 	return &state.State{
-		AWS: adaptAWS(s),
+		AWS: adaptAWS(g),
 	}
 }
 
-func adaptAWS(s *PlanState) aws.AWS {
+func adaptAWS(g *Graph) aws.AWS {
 	return aws.AWS{
-		S3: adaptS3(s),
+		S3: adaptS3(g),
 	}
 }
 
-func adaptS3(s *PlanState) s3.S3 {
+func adaptS3(g *Graph) s3.S3 {
 	var buckets []s3.Bucket
-	for _, res := range s.GetResourcesByType("aws_s3_bucket") {
+	for _, res := range g.FindResourcesByType("aws_s3_bucket") {
 		bucket := s3.Bucket{
-			Name:           res.GetStringAttr("bucket"),
+			Name:           res.GetStringAttr("bucket", res.ID()),
 			BucketLocation: res.GetStringAttr("region"),
 		}
 
-		adaptVersioning(s, &bucket, res)
-		adaptLogging(s, &bucket, res)
-		adaptSSE(s, &bucket, res)
-		adaptAccessBlock(s, &bucket, res)
-		adaptLifecycleConfiguration(s, &bucket, res)
+		adaptVersioning(&bucket, res)
+		adaptLogging(&bucket, res)
+		adaptSSE(&bucket, res)
+		adaptAccessBlock(&bucket, res)
+		adaptLifecycleConfiguration(&bucket, res)
 
-		if bucketAcl := s.FindBlockByResourceRef(RelatedResourceParams{
-			ResourceType:  "aws_s3_bucket_acl",
-			ByField:       "bucket",
-			To:            res,
-			CompareFields: []string{"bucket", "id"},
-		}); bucketAcl != nil {
+		if bucketAcl := res.FindBackRelated("aws_s3_bucket_acl", "bucket", "bucket", "id"); bucketAcl != nil {
 			bucket.ACL = bucketAcl.GetStringAttr("acl")
 		}
 
-		if accelerateConfiguration := s.FindBlockByResourceRef(RelatedResourceParams{
-			ResourceType:  "aws_s3_bucket_accelerate_configuration",
-			ByField:       "bucket",
-			To:            res,
-			CompareFields: []string{"bucket", "id"},
-		}); accelerateConfiguration != nil {
+		if accelerateConfiguration := res.FindBackRelated(
+			"aws_s3_bucket_accelerate_configuration", "bucket", "bucket", "id",
+		); accelerateConfiguration != nil {
 			bucket.AccelerateConfigurationStatus = accelerateConfiguration.GetStringAttr("status")
 		}
 
@@ -64,7 +56,7 @@ func adaptS3(s *PlanState) s3.S3 {
 	}
 }
 
-func adaptVersioning(s *PlanState, bucket *s3.Bucket, res block) {
+func adaptVersioning(bucket *s3.Bucket, res *Node) {
 	versioningAttr := res.GetAttr("versioning")
 
 	bucket.Versioning = s3.Versioning{
@@ -72,12 +64,9 @@ func adaptVersioning(s *PlanState, bucket *s3.Bucket, res block) {
 		MFADelete: versioningAttr.GetBoolAttr("mfa_delete"),
 	}
 
-	if bucketVersioning := s.FindBlockByResourceRef(RelatedResourceParams{
-		ResourceType:  "aws_s3_bucket_versioning",
-		ByField:       "bucket",
-		To:            res,
-		CompareFields: []string{"bucket", "id"},
-	}); bucketVersioning != nil {
+	if bucketVersioning := res.FindBackRelated(
+		"aws_s3_bucket_versioning", "bucket", "bucket", "id",
+	); bucketVersioning != nil {
 		versioningConf := bucketVersioning.GetAttr("versioning_configuration")
 		if !versioningConf.IsNil() {
 			bucket.Versioning = s3.Versioning{
@@ -88,47 +77,38 @@ func adaptVersioning(s *PlanState, bucket *s3.Bucket, res block) {
 	}
 }
 
-func adaptLogging(s *PlanState, bucket *s3.Bucket, res block) {
-	if bucketLoggingRes := s.FindBlockByResourceRef(RelatedResourceParams{
-		ResourceType:  "aws_s3_bucket_logging",
-		ByField:       "bucket",
-		To:            res,
-		CompareFields: []string{"bucket", "id"},
-	}); bucketLoggingRes != nil {
-		if logBucket := s.FindBlockByConfigRef(RelatedResourceParams{
-			ResourceType:  "aws_s3_bucket",
-			ByField:       "target_bucket",
-			To:            *bucketLoggingRes,
-			CompareFields: []string{"bucket", "id"},
-		}); logBucket != nil {
+func adaptLogging(bucket *s3.Bucket, res *Node) {
+	if bucketLoggingRes := res.FindBackRelated(
+		"aws_s3_bucket_logging", "bucket", "bucket", "id",
+	); bucketLoggingRes != nil {
+		if logBucket := bucketLoggingRes.FindRelated(
+			"aws_s3_bucket", "target_bucket", "bucket", "id",
+		); logBucket != nil {
 			bucket.Logging = s3.Logging{
 				Enabled:      types.Bool(true, types.Metadata{}),
-				TargetBucket: logBucket.GetStringAttr("bucket"),
+				TargetBucket: logBucket.GetStringAttr("bucket", logBucket.ID()),
 			}
 		}
 	}
 }
 
-func adaptSSE(s *PlanState, bucket *s3.Bucket, res block) {
+func adaptSSE(bucket *s3.Bucket, res *Node) {
 	// legacy atribute
 	applySSE := res.GetNestedAttr("server_side_encryption_configuration.rule.apply_server_side_encryption_by_default")
 	if !applySSE.IsNil() {
 		kmsKeyIdField := "server_side_encryption_configuration.rule.apply_server_side_encryption_by_default.kms_master_key_id"
-		bucket.Encryption = getEncryption(s, applySSE, res, kmsKeyIdField)
-	} else if sse := s.FindBlockByResourceRef(RelatedResourceParams{
-		ResourceType:  "aws_s3_bucket_server_side_encryption_configuration",
-		ByField:       "bucket",
-		To:            res,
-		CompareFields: []string{"bucket", "id"},
-	}); sse != nil {
+		bucket.Encryption = getEncryption(applySSE, res, kmsKeyIdField)
+	} else if sse := res.FindBackRelated(
+		"aws_s3_bucket_server_side_encryption_configuration", "bucket", "bucket", "id",
+	); sse != nil {
 		if applySSE := sse.GetNestedAttr("rule.apply_server_side_encryption_by_default"); !applySSE.IsNil() {
 			kmsKeyIdField := "rule.apply_server_side_encryption_by_default.kms_master_key_id"
-			bucket.Encryption = getEncryption(s, applySSE, *sse, kmsKeyIdField)
+			bucket.Encryption = getEncryption(applySSE, sse, kmsKeyIdField)
 		}
 	}
 }
 
-func getEncryption(s *PlanState, attr *attribute, to block, field string) s3.Encryption {
+func getEncryption(attr *Attribute, to *Node, field string) s3.Encryption {
 	algorithm := attr.GetStringAttr("sse_algorithm")
 	enabled := types.BoolDefault(false, types.Metadata{})
 	if algorithm.IsNotEmpty() {
@@ -137,12 +117,7 @@ func getEncryption(s *PlanState, attr *attribute, to block, field string) s3.Enc
 
 	kmsKeyID := attr.GetStringAttr("kms_master_key_id")
 	if kmsKeyID.IsEmpty() {
-		if kmsKeyResource := s.FindBlockByConfigRef(RelatedResourceParams{
-			ResourceType:  "aws_kms_key",
-			ByField:       field,
-			To:            to,
-			CompareFields: []string{"arn", "key_id"},
-		}); kmsKeyResource != nil {
+		if kmsKeyResource := to.FindRelated("aws_kms_key", field, "kms_key_id", "arn"); kmsKeyResource != nil {
 			// mock ARN
 			kmsKeyID = types.String("1234abcd-12ab-34cd-56ef-1234567890ab", types.Metadata{}) // TODO
 		}
@@ -155,13 +130,10 @@ func getEncryption(s *PlanState, attr *attribute, to block, field string) s3.Enc
 	}
 }
 
-func adaptAccessBlock(s *PlanState, bucket *s3.Bucket, res block) {
-	if accessBlock := s.FindBlockByResourceRef(RelatedResourceParams{
-		ResourceType:  "aws_s3_bucket_public_access_block",
-		ByField:       "bucket",
-		To:            res,
-		CompareFields: []string{"bucket", "id"},
-	}); accessBlock != nil {
+func adaptAccessBlock(bucket *s3.Bucket, res *Node) {
+	if accessBlock := res.FindBackRelated(
+		"aws_s3_bucket_public_access_block", "bucket", "bucket", "id",
+	); accessBlock != nil {
 		bucket.PublicAccessBlock = &s3.PublicAccessBlock{
 			BlockPublicACLs:       accessBlock.GetBoolAttr("block_public_acls"),
 			BlockPublicPolicy:     accessBlock.GetBoolAttr("block_public_policy"),
@@ -171,13 +143,10 @@ func adaptAccessBlock(s *PlanState, bucket *s3.Bucket, res block) {
 	}
 }
 
-func adaptLifecycleConfiguration(s *PlanState, bucket *s3.Bucket, res block) {
-	if lifecycleCfg := s.FindBlockByResourceRef(RelatedResourceParams{
-		ResourceType:  "aws_s3_bucket_lifecycle_configuration",
-		ByField:       "bucket",
-		To:            res,
-		CompareFields: []string{"bucket", "id"},
-	}); lifecycleCfg != nil {
+func adaptLifecycleConfiguration(bucket *s3.Bucket, res *Node) {
+	if lifecycleCfg := res.FindBackRelated(
+		"aws_s3_bucket_lifecycle_configuration", "bucket", "bucket", "id",
+	); lifecycleCfg != nil {
 		var rules []s3.Rules
 		for _, rule := range lifecycleCfg.GetAttr("rule").ToList() {
 			rules = append(rules, s3.Rules{

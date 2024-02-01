@@ -1,17 +1,45 @@
 // Terraform Plan is generated from this config
 
-resource "aws_s3_bucket" "this" {
-  bucket = "test"
+terraform {
+  required_version = ">= 1.0"
 
-  // legacy
-  server_side_encryption_configuration {
-    rule {
-      apply_server_side_encryption_by_default {
-        kms_master_key_id = aws_kms_key.mykey.key_id
-        sse_algorithm = "aws:kms"
-      }
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "= 5.34.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "= 3.6.0"
     }
   }
+}
+
+resource "random_pet" "this" {
+  length = 2
+}
+
+locals {
+  log_bucket_name = "logs-${random_pet.this.id}"
+}
+
+module "log_bucket" {
+  source  = "terraform-aws-modules/s3-bucket/aws"
+  version = "= 4.1.0"
+  bucket  = local.log_bucket_name
+
+  versioning = {
+    enabled = true
+    mfa_delete = true
+  }
+}
+
+locals {
+  log_bucket_ref = module.log_bucket.s3_bucket_id
+}
+
+resource "aws_s3_bucket" "this" {
+  bucket = "test"
 }
 
 resource "aws_s3_bucket_versioning" "this" {
@@ -22,14 +50,11 @@ resource "aws_s3_bucket_versioning" "this" {
   }
 }
 
-resource "aws_s3_bucket" "log_bucket" {
-  bucket = "test-log"
-}
 
 resource "aws_s3_bucket_logging" "this" {
   bucket = aws_s3_bucket.this.id
 
-  target_bucket = aws_s3_bucket.log_bucket.id
+  target_bucket = module.log_bucket.s3_bucket_id
   target_prefix = "log/"
 }
 

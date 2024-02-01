@@ -6,30 +6,30 @@ import (
 	defsecTypes "github.com/aquasecurity/defsec/pkg/types"
 )
 
-type attribute struct {
+type Attribute struct {
 	val any
 }
 
-func (a *attribute) ToList() []*attribute {
+func (a *Attribute) ToList() []*Attribute {
 	val, ok := a.val.([]any)
 	if !ok {
 		return nil
 	}
 
-	res := make([]*attribute, 0, len(val))
+	res := make([]*Attribute, 0, len(val))
 	for _, el := range val {
 		m, ok := el.(map[string]any)
 		if !ok {
 			continue
 		}
 
-		res = append(res, &attribute{m})
+		res = append(res, &Attribute{m})
 	}
 
 	return res
 }
 
-func (a *attribute) GetNestedAttr(path string) *attribute {
+func (a *Attribute) GetNestedAttr(path string) *Attribute {
 
 	if path == "" {
 		return nil
@@ -50,7 +50,7 @@ func (a *attribute) GetNestedAttr(path string) *attribute {
 		m = val
 	}
 
-	attr := &attribute{m[parts[0]]}
+	attr := &Attribute{m[parts[0]]}
 
 	if len(parts) == 1 {
 		return attr
@@ -59,7 +59,7 @@ func (a *attribute) GetNestedAttr(path string) *attribute {
 	return attr.GetNestedAttr(parts[1])
 }
 
-func (a *attribute) GetStringAttr(path string) defsecTypes.StringValue {
+func (a *Attribute) GetStringAttr(path string) defsecTypes.StringValue {
 	def := defsecTypes.StringDefault("", defsecTypes.Metadata{})
 	if a.IsNil() {
 		return def
@@ -73,7 +73,7 @@ func (a *attribute) GetStringAttr(path string) defsecTypes.StringValue {
 	return defsecTypes.String(*val, defsecTypes.Metadata{})
 }
 
-func (a *attribute) GetBoolAttr(path string) defsecTypes.BoolValue {
+func (a *Attribute) GetBoolAttr(path string) defsecTypes.BoolValue {
 	def := defsecTypes.BoolDefault(false, defsecTypes.Metadata{})
 	if a.IsNil() {
 		return def
@@ -89,7 +89,7 @@ func (a *attribute) GetBoolAttr(path string) defsecTypes.BoolValue {
 }
 
 // TODO
-func (a *attribute) AsBool() *bool {
+func (a *Attribute) AsBool() *bool {
 	if a.IsNil() {
 		return nil
 	}
@@ -101,7 +101,7 @@ func (a *attribute) AsBool() *bool {
 	return &val
 }
 
-func (a *attribute) AsString() *string {
+func (a *Attribute) AsString() *string {
 	if a.IsNil() {
 		return nil
 	}
@@ -113,6 +113,6 @@ func (a *attribute) AsString() *string {
 	return &val
 }
 
-func (a *attribute) IsNil() bool {
+func (a *Attribute) IsNil() bool {
 	return a == nil || a.val == nil
 }

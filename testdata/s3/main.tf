@@ -32,10 +32,8 @@ module "log_bucket" {
     enabled = true
     mfa_delete = true
   }
-}
 
-locals {
-  log_bucket_ref = module.log_bucket.s3_bucket_id
+  acl = "aws-exec-read"
 }
 
 resource "aws_s3_bucket" "this" {

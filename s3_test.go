@@ -1,7 +1,6 @@
-package main
+package tfplanadapt
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -9,13 +8,9 @@ import (
 	"github.com/aquasecurity/defsec/pkg/providers/aws/s3"
 	"github.com/aquasecurity/defsec/pkg/state"
 	"github.com/aquasecurity/defsec/pkg/types"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestAdapt(t *testing.T) {
+func TestAdaptS3(t *testing.T) {
 
 	expected := &state.State{
 		AWS: aws.AWS{
@@ -72,26 +67,5 @@ func TestAdapt(t *testing.T) {
 		},
 	}
 
-	f, err := os.Open(filepath.Join("testdata", "tfplan1.json"))
-	require.NoError(t, err)
-	defer f.Close()
-
-	plan, err := ReadPlan(f)
-	require.NoError(t, err)
-
-	graph, err := NewTerraformPlanGraph(plan)
-	require.NoError(t, err)
-
-	got := Adapt(graph)
-	assert.Empty(t, diffState(expected, got))
-}
-
-func diffState(expected *state.State, actual *state.State, opts ...cmp.Option) string {
-	opts = append(
-		opts,
-		cmpopts.IgnoreUnexported(state.State{}, types.Metadata{}, types.BaseAttribute{}),
-		cmp.AllowUnexported(types.BoolValue{}, types.IntValue{}, types.StringValue{}),
-	)
-
-	return cmp.Diff(expected, actual, opts...)
+	runAdaptTest(t, filepath.Join("testdata", "s3", "tfplan.json"), expected)
 }

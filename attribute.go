@@ -1,4 +1,4 @@
-package main
+package tfplanadapt
 
 import (
 	"strings"
@@ -11,6 +11,9 @@ type Attribute struct {
 }
 
 func (a *Attribute) ToList() []*Attribute {
+	if a == nil {
+		return nil
+	}
 	val, ok := a.val.([]any)
 	if !ok {
 		return nil

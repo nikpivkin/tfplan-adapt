@@ -1,4 +1,4 @@
-package main
+package tfplanadapt
 
 // Edge represents the link between resources
 type Edge struct {
